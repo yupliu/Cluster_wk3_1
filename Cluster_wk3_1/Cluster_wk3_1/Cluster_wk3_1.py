@@ -259,3 +259,220 @@ for seed in [0, 20000, 40000, 60000, 80000, 100000, 120000]:
     sys.stdout.flush()
 end = time.time()
 print(end-start)
+
+def smart_initialize(data, k, seed=None):
+    '''Use k-means++ to initialize a good set of centroids'''
+    if seed is not None: # useful for obtaining consistent results
+        np.random.seed(seed)
+    centroids = np.zeros((k, data.shape[1]))
+    
+    # Randomly choose the first centroid.
+    # Since we have no prior knowledge, choose uniformly at random
+    idx = np.random.randint(data.shape[0])
+    centroids[0] = data[idx,:].toarray()
+    # Compute distances from the first centroid chosen to all the other data points
+    squared_distances = pairwise_distances(data, centroids[0:1], metric='euclidean').flatten()**2
+    
+    for i in xrange(1, k):
+        # Choose the next centroid randomly, so that the probability for each data point to be chosen
+        # is directly proportional to its squared distance from the nearest centroid.
+        # Roughtly speaking, a new centroid should be as far as from ohter centroids as possible.
+        idx = np.random.choice(data.shape[0], 1, p=squared_distances/sum(squared_distances))
+        centroids[i] = data[idx,:].toarray()
+        # Now compute distances from the centroids to all data points
+        squared_distances = np.min(pairwise_distances(data, centroids[0:i+1], metric='euclidean')**2,axis=1)
+    
+    return centroids
+k = 10
+heterogeneity_smart = {}
+start = time.time()
+for seed in [0, 20000, 40000, 60000, 80000, 100000, 120000]:
+    initial_centroids = smart_initialize(tf_idf, k, seed)
+    centroids, cluster_assignment = kmeans(tf_idf, k, initial_centroids, maxiter=400,
+                                           record_heterogeneity=None, verbose=False)
+    # To save time, compute heterogeneity only once in the end
+    heterogeneity_smart[seed] = compute_heterogeneity(tf_idf, k, centroids, cluster_assignment)
+    print('seed={0:06d}, heterogeneity={1:.5f}'.format(seed, heterogeneity_smart[seed]))
+    sys.stdout.flush()
+end = time.time()
+print(end-start)
+
+plt.figure(figsize=(8,5))
+plt.boxplot([heterogeneity.values(), heterogeneity_smart.values()], vert=False)
+plt.yticks([1, 2], ['k-means', 'k-means++'])
+plt.rcParams.update({'font.size': 16})
+plt.tight_layout()
+plt.show()
+plt.close()
+
+def kmeans_multiple_runs(data, k, maxiter, num_runs, seed_list=None, verbose=False):
+    heterogeneity = {}
+    
+    min_heterogeneity_achieved = float('inf')
+    best_seed = None
+    final_centroids = None
+    final_cluster_assignment = None
+    
+    for i in xrange(num_runs):
+        
+        # Use UTC time if no seeds are provided 
+        if seed_list is not None: 
+            seed = seed_list[i]
+            np.random.seed(seed)
+        else: 
+            seed = int(time.time())
+            np.random.seed(seed)
+        
+        # Use k-means++ initialization
+        # YOUR CODE HERE
+        initial_centroids = smart_initialize(data,k,seed)
+        
+        # Run k-means
+        # YOUR CODE HERE
+        centroids, cluster_assignment = kmeans(data,k,initial_centroids,maxiter,None,verbose)
+        
+        # To save time, compute heterogeneity only once in the end
+        # YOUR CODE HERE
+        heterogeneity[seed] = compute_heterogeneity(data,centroids,cluster_assignment)
+        
+        if verbose:
+            print('seed={0:06d}, heterogeneity={1:.5f}'.format(seed, heterogeneity[seed]))
+            sys.stdout.flush()
+        
+        # if current measurement of heterogeneity is lower than previously seen,
+        # update the minimum record of heterogeneity.
+        if heterogeneity[seed] < min_heterogeneity_achieved:
+            min_heterogeneity_achieved = heterogeneity[seed]
+            best_seed = seed
+            final_centroids = centroids
+            final_cluster_assignment = cluster_assignment
+    
+    # Return the centroids and cluster assignments that minimize heterogeneity.
+    return final_centroids, final_cluster_assignment
+
+#def plot_k_vs_heterogeneity(k_values, heterogeneity_values):
+#    plt.figure(figsize=(7,4))
+#    plt.plot(k_values, heterogeneity_values, linewidth=4)
+#    plt.xlabel('K')
+#    plt.ylabel('Heterogeneity')
+#    plt.title('K vs. Heterogeneity')
+#    plt.rcParams.update({'font.size': 16})
+#    plt.tight_layout()
+
+#start = time.time()
+#centroids = {}
+#cluster_assignment = {}
+#heterogeneity_values = []
+#k_list = [2, 10, 25, 50, 100]
+#seed_list = [0, 20000, 40000, 60000, 80000, 100000, 120000]
+
+#for k in k_list:
+#    heterogeneity = []
+#    centroids[k], cluster_assignment[k] = kmeans_multiple_runs(tf_idf, k, maxiter=400,
+#                                                               num_runs=len(seed_list),
+#                                                               seed_list=seed_list,
+#                                                               verbose=True)
+#    score = compute_heterogeneity(tf_idf, k, centroids[k], cluster_assignment[k])
+#    heterogeneity_values.append(score)
+
+#plot_k_vs_heterogeneity(k_list, heterogeneity_values)
+
+#end = time.time()
+#print(end-start)
+
+def plot_k_vs_heterogeneity(k_values, heterogeneity_values):
+    plt.figure(figsize=(7,4))
+    plt.plot(k_values, heterogeneity_values, linewidth=4)
+    plt.xlabel('K')
+    plt.ylabel('Heterogeneity')
+    plt.title('K vs. Heterogeneity')
+    plt.rcParams.update({'font.size': 16})
+    plt.tight_layout()
+    plt.show()
+    plt.close()
+
+
+filename = 'C:\\Machine_Learning\\Cluster_wk3_1\\kmeans-arrays.npz'
+
+heterogeneity_values = []
+k_list = [2, 10, 25, 50, 100]
+
+if os.path.exists(filename):
+    arrays = np.load(filename)
+    centroids = {}
+    cluster_assignment = {}
+    for k in k_list:
+        print k
+        sys.stdout.flush()
+        '''To save memory space, do not load the arrays from the file right away. We use
+           a technique known as lazy evaluation, where some expressions are not evaluated
+           until later. Any expression appearing inside a lambda function doesn't get
+           evaluated until the function is called.
+           Lazy evaluation is extremely important in memory-constrained setting, such as
+           an Amazon EC2 t2.micro instance.'''
+        centroids[k] = lambda k=k: arrays['centroids_{0:d}'.format(k)]
+        cluster_assignment[k] = lambda k=k: arrays['cluster_assignment_{0:d}'.format(k)]
+        score = compute_heterogeneity(tf_idf, k, centroids[k](), cluster_assignment[k]())
+        heterogeneity_values.append(score)
+    
+    plot_k_vs_heterogeneity(k_list, heterogeneity_values)
+
+else:
+    print('File not found. Skipping.')
+
+def visualize_document_clusters(wiki, tf_idf, centroids, cluster_assignment, k, map_index_to_word, display_content=True):
+    '''wiki: original dataframe
+       tf_idf: data matrix, sparse matrix format
+       map_index_to_word: SFrame specifying the mapping betweeen words and column indices
+       display_content: if True, display 8 nearest neighbors of each centroid'''
+    
+    print('==========================================================')
+
+    # Visualize each cluster c
+    for c in xrange(k):
+        # Cluster heading
+        print('Cluster {0:d}    '.format(c)),
+        # Print top 5 words with largest TF-IDF weights in the cluster
+        idx = centroids[c].argsort()[::-1]
+        for i in xrange(5): # Print each word along with the TF-IDF weight
+            print('{0:s}:{1:.3f}'.format(map_index_to_word['category'][idx[i]], centroids[c,idx[i]])),
+        print('')
+        
+        if display_content:
+            # Compute distances from the centroid to all data points in the cluster,
+            # and compute nearest neighbors of the centroids within the cluster.
+            distances = pairwise_distances(tf_idf, centroids[c].reshape(1, -1), metric='euclidean').flatten()
+            distances[cluster_assignment!=c] = float('inf') # remove non-members from consideration
+            nearest_neighbors = distances.argsort()
+            # For 8 nearest neighbors, print the title as well as first 180 characters of text.
+            # Wrap the text at 80-character mark.
+            for i in xrange(8):
+                text = ' '.join(wiki[nearest_neighbors[i]]['text'].split(None, 25)[0:25])
+                print('\n* {0:50s} {1:.5f}\n  {2:s}\n  {3:s}'.format(wiki[nearest_neighbors[i]]['name'],
+                    distances[nearest_neighbors[i]], text[:90], text[90:180] if len(text) > 90 else ''))
+        print('==========================================================')
+
+'''Notice the extra pairs of parentheses for centroids and cluster_assignment.
+   The centroid and cluster_assignment are still inside the npz file,
+   and we need to explicitly indicate when to load them into memory.'''
+visualize_document_clusters(wiki, tf_idf, centroids[2](), cluster_assignment[2](), 2, map_index_to_word)
+
+k = 10
+visualize_document_clusters(wiki, tf_idf, centroids[k](), cluster_assignment[k](), k, map_index_to_word)
+
+np.bincount(cluster_assignment[10]())
+
+visualize_document_clusters(wiki, tf_idf, centroids[25](), cluster_assignment[25](), 25,
+                            map_index_to_word, display_content=False) # turn off text for brevity
+
+k=100
+visualize_document_clusters(wiki, tf_idf, centroids[k](), cluster_assignment[k](), k,
+                            map_index_to_word, display_content=False)
+# turn off text for brevity -- turn it on if you are curious ;)
+
+result = cluster_assignment[k]()
+
+article_cluster = np.bincount(result)
+count = len(article_cluster[article_cluster<236])
+print count
+
